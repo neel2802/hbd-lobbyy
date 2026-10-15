@@ -1,4 +1,8 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Three Little Levels</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,6 +19,9 @@
   color-scheme: light;
 }
 html,body{height:100%}
+[hidden]{display:none!important}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0}
 body{background:var(--night); color:var(--ink); font-family:var(--font-body); overflow:hidden; -webkit-tap-highlight-color:transparent}
 button{font-family:inherit; color:inherit}
 
@@ -235,6 +242,10 @@ body.dark .pill-btn{background:rgba(255,255,255,.16); color:var(--white)}
   .grow,.slide,.petal{transition-duration:.3s}
 }
 </style>
+<style>:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)} img{max-width:100%}</style>
+</head>
+<body>
+
 
 <div class="bgs" aria-hidden="true">
   <div class="bg on" data-bg="intro"></div>
@@ -656,33 +667,103 @@ function originAt(x,y){ return {x:x/innerWidth, y:y/innerHeight}; }
 /* ---------- sound ---------- */
 let AC=null, soundOn=true;
 function ac(){ if(!AC){ try{ AC=new (window.AudioContext||window.webkitAudioContext)(); }catch(e){ AC=null; } } if(AC && AC.state==="suspended") AC.resume(); return AC; }
-function tone(f, dur, type, vol, when){ const a=ac(); if(!a||!soundOn) return; dur=dur||.15; vol=vol||.12; const t=a.currentTime+(when||0);
-  const o=a.createOscillator(), g=a.createGain(); o.type=type||"sine"; o.frequency.setValueAtTime(f,t);
-  g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(vol,t+.012); g.gain.exponentialRampToValueAtTime(.0001,t+dur);
-  o.connect(g); g.connect(a.destination); o.start(t); o.stop(t+dur+.05); }
-function noise(dur, vol, freq, when, type){ const a=ac(); if(!a||!soundOn) return; const t=a.currentTime+(when||0);
-  const len=Math.floor(a.sampleRate*dur), buf=a.createBuffer(1,len,a.sampleRate), d=buf.getChannelData(0);
-  for(let i=0;i<len;i++) d[i]=(Math.random()*2-1)*(1-i/len);
-  const s=a.createBufferSource(); s.buffer=buf; const f=a.createBiquadFilter(); f.type=type||"bandpass"; f.frequency.value=freq||1000;
-  const g=a.createGain(); g.gain.value=vol; s.connect(f); f.connect(g); g.connect(a.destination); s.start(t); }
+function voice(dest, o){ const a=AC; if(!a) return; const t=o.when, osc=a.createOscillator(), g=a.createGain(); osc.type=o.type||"sine"; osc.frequency.setValueAtTime(o.f,t);
+  if(o.glide) osc.frequency.exponentialRampToValueAtTime(o.glide, t+(o.glideT||o.dur)); if(o.detune) osc.detune.value=o.detune;
+  const at=o.attack||.008; g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(o.vol,t+at); if(o.hold && o.hold>at) g.gain.setValueAtTime(o.vol,t+o.hold); g.gain.exponentialRampToValueAtTime(.0001,t+Math.max(o.dur,at+.02));
+  osc.connect(g); g.connect(dest); osc.start(t); osc.stop(t+o.dur+.06); }
+function tone(f, dur, type, vol, when){ const a=ac(); if(!a||!soundOn) return; voice(a.destination,{type:type||"sine", f, dur:dur||.15, vol:vol||.12, when:a.currentTime+(when||0), attack:.012}); }
+let NOISE=null;
+function noiseBuf(a){ if(!NOISE){ const len=a.sampleRate*2; NOISE=a.createBuffer(1,len,a.sampleRate); const d=NOISE.getChannelData(0); for(let i=0;i<len;i++) d[i]=Math.random()*2-1; } return NOISE; }
+function noiseTo(dest, dur, vol, freq, t, type){ const a=AC; if(!a) return; const s=a.createBufferSource(); s.buffer=noiseBuf(a); const f=a.createBiquadFilter(); f.type=type||"bandpass"; f.frequency.value=freq||1000;
+  const g=a.createGain(); g.gain.setValueAtTime(vol,t); g.gain.exponentialRampToValueAtTime(.0001,t+dur); s.connect(f); f.connect(g); g.connect(dest); s.start(t, Math.random()*Math.max(0,1.9-dur)); s.stop(t+dur+.05); }
+function noise(dur, vol, freq, when, type){ const a=ac(); if(!a||!soundOn) return; noiseTo(a.destination, dur, vol, freq, a.currentTime+(when||0), type); }
+let pourNode=null;
+function pour(on){ const a=AC; if(!a) return;
+  if(on && !pourNode && soundOn){ const s=a.createBufferSource(); s.buffer=noiseBuf(a); s.loop=true; const f=a.createBiquadFilter(); f.type="bandpass"; f.frequency.value=1700; f.Q.value=.7; const g=a.createGain();
+    g.gain.setValueAtTime(0,a.currentTime); g.gain.linearRampToValueAtTime(.08,a.currentTime+.15); s.connect(f); f.connect(g); g.connect(a.destination); s.start(); pourNode={s,g}; }
+  else if(!on && pourNode){ const {s,g}=pourNode; pourNode=null; try{ g.gain.cancelScheduledValues(a.currentTime); g.gain.setValueAtTime(g.gain.value,a.currentTime); g.gain.linearRampToValueAtTime(0,a.currentTime+.2); s.stop(a.currentTime+.25); }catch(e){} } }
 const sfx = {
-  soft(){ tone(520,.12,"sine",.08); },
-  pop(){ tone(660,.09,"triangle",.18); tone(990,.07,"sine",.08,.03); },
-  chime(){ [784,988,1175].forEach((f,i)=>tone(f,.45,"sine",.1,i*.08)); },
-  win(){ [523,659,784,1047].forEach((f,i)=>tone(f,.4,"triangle",.12,i*.1)); },
-  wrong(){ tone(240,.16,"square",.05); tone(190,.2,"square",.045,.09); },
+  soft(){ tone(520,.14,"sine",.08); },
+  pop(){ tone(660,.09,"triangle",.18); tone(990,.07,"sine",.08,.03); noise(.05,.12,2500,0,"highpass"); },
+  chime(){ [784,988,1175].forEach((f,i)=>tone(f,.5,"sine",.09,i*.08)); },
+  win(){ [523,659,784,1047].forEach((f,i)=>tone(f,.45,"triangle",.11,i*.1)); tone(1568,.8,"sine",.05,.42); },
+  sparkle(){ [1568,1976,2349,2637,3136,2637,3136].forEach((f,i)=>tone(f,.3,"sine",.04,i*.045)); },
+  wrong(){ tone(240,.16,"square",.05); tone(190,.22,"square",.045,.09); },
   drip(){ tone(900+Math.random()*500,.05,"sine",.04); },
-  dig(){ noise(.18,.25,500,0,"lowpass"); },
-  whoosh(){ noise(.6,.12,900,0,"bandpass"); },
-  puff(){ noise(.3,.18,700,0,"lowpass"); },
-  cork(){ noise(.1,.5,2400,0,"highpass"); tone(170,.14,"sine",.3); noise(1.6,.1,5200,.08,"highpass"); },
-  tick(){ tone(1400+Math.random()*300,.04,"sine",.05); }
+  dig(){ noise(.2,.3,450,0,"lowpass"); tone(110,.1,"sine",.08); },
+  whoosh(){ noise(.6,.14,900,0,"bandpass"); },
+  puff(){ noise(.35,.2,700,0,"lowpass"); },
+  grow(){ const a=ac(); if(!a||!soundOn) return; voice(a.destination,{f:260, glide:780, glideT:1.5, dur:1.7, vol:.05, when:a.currentTime, attack:.25}); },
+  bloop(){ const a=ac(); if(!a||!soundOn) return; voice(a.destination,{f:880, glide:260, glideT:.16, dur:.22, vol:.12, when:a.currentTime}); },
+  swish(){ noise(.2,.07,1300,0,"bandpass"); },
+  squish(){ noise(.14,.09,450,0,"lowpass"); tone(170,.08,"sine",.04); },
+  ding(){ tone(1568,1.4,"sine",.1); tone(2093,1.1,"sine",.06,.01); tone(3136,.6,"sine",.03,.01); },
+  clunk(){ tone(130,.14,"square",.06); noise(.08,.25,900,0,"bandpass"); },
+  rumble(){ noise(1.2,.4,160,0,"lowpass"); tone(55,1,"sine",.12); },
+  fwip(){ noise(.1,.08,3200,0,"highpass"); tone(1300+Math.random()*500,.05,"sine",.035,.02); },
+  cork(){ noise(.1,.5,2400,0,"highpass"); tone(170,.14,"sine",.3); noise(1.5,.1,5200,.08,"highpass"); },
+  thump(){ tone(70,.5,"sine",.3); noise(.4,.25,250,0,"lowpass"); },
+  crackle(w){ for(let i=0;i<16;i++) noise(.03,.12+Math.random()*.15,3000+Math.random()*4000,(w||0)+i*.05+Math.random()*.03,"highpass"); },
+  tick(){ tone(1400+Math.random()*300,.04,"sine",.05); },
+  horn(w){ const a=ac(); if(!a||!soundOn) return; const t=a.currentTime+(w||0); const o=a.createOscillator(), f=a.createBiquadFilter(), g=a.createGain(), l=a.createOscillator(), lg=a.createGain();
+    o.type="sawtooth"; o.frequency.setValueAtTime(330,t); o.frequency.linearRampToValueAtTime(540,t+.18); l.frequency.value=16; lg.gain.value=12; l.connect(lg); lg.connect(o.frequency);
+    f.type="lowpass"; f.frequency.value=2400; g.gain.setValueAtTime(0,t); g.gain.linearRampToValueAtTime(.08,t+.04); g.gain.setValueAtTime(.08,t+.5); g.gain.linearRampToValueAtTime(0,t+.72);
+    o.connect(f); f.connect(g); g.connect(a.destination); o.start(t); l.start(t); o.stop(t+.8); l.stop(t+.8); }
 };
-function birthdaySong(){
-  const b=.34, seq=[[392,.75],[392,.25],[440,1],[392,1],[523,1],[494,2],[392,.75],[392,.25],[440,1],[392,1],[587,1],[523,2],[392,.75],[392,.25],[784,1],[659,1],[523,1],[494,1],[440,2],[698,.75],[698,.25],[659,1],[523,1],[587,1],[523,2.6]];
-  let t=0; seq.forEach(([f,d])=>{ tone(f, Math.max(.35,d*b*1.7), "triangle", .11, t); tone(f*2, Math.max(.25,d*b*1.1), "sine", .035, t); t+=d*b; });
-}
-$("#soundBtn").addEventListener("click", ()=>{ soundOn=!soundOn; $("#soundBtn").textContent = soundOn?"Sound on":"Sound off"; $("#soundBtn").setAttribute("aria-pressed", String(soundOn)); if(soundOn) sfx.soft(); });
+
+/* ---------- background music ---------- */
+const mf = m => 440*Math.pow(2,(m-69)/12);
+function playEv(ev, when, bus){ const ms=Array.isArray(ev.m)?ev.m:[ev.m]; const dur=(ev.d||1)*M.spb;
+  switch(ev.i){
+    case "bell": ms.forEach(m=>{ voice(bus,{f:mf(m), dur:Math.max(.3,dur), vol:ev.v, when}); voice(bus,{f:mf(m)*2, dur:Math.max(.2,dur*.6), vol:ev.v*.35, when}); }); break;
+    case "pluck": ms.forEach(m=>voice(bus,{type:"triangle", f:mf(m), dur:Math.max(.15,dur), vol:ev.v, when})); break;
+    case "lead": ms.forEach(m=>{ voice(bus,{type:"triangle", f:mf(m), dur:Math.max(.2,dur), vol:ev.v, when, attack:.01, hold:dur*.6}); voice(bus,{type:"square", f:mf(m), dur:Math.max(.2,dur*.8), vol:ev.v*.16, when, attack:.01}); voice(bus,{f:mf(m)*2, dur:Math.max(.2,dur*.5), vol:ev.v*.3, when}); }); break;
+    case "bass": ms.forEach(m=>voice(bus,{type:"triangle", f:mf(m), dur:Math.max(.2,dur), vol:ev.v, when})); break;
+    case "stab": ms.forEach(m=>voice(bus,{f:mf(m), dur:Math.max(.12,dur), vol:ev.v, when})); break;
+    case "pad": ms.forEach(m=>{ voice(bus,{f:mf(m), dur:dur+.4, vol:ev.v, when, attack:.35, detune:-6}); voice(bus,{f:mf(m), dur:dur+.4, vol:ev.v, when, attack:.35, detune:6}); }); break;
+    case "hat": noiseTo(bus,.04,ev.v,7000,when,"highpass"); break;
+    case "kick": voice(bus,{f:120, glide:45, glideT:.12, dur:.18, vol:ev.v, when}); break;
+  } }
+function arpTheme(o){ const ev=[], step=o.step||.5, bar=o.pat.length*step;
+  o.chords.forEach((ch,b)=>{ const t=b*bar;
+    o.pat.forEach((pi,k)=>{ if(pi===null) return; ev.push({t:t+k*step, m:ch[pi%ch.length]+12*Math.floor(pi/ch.length)+(o.oct||0), d:o.nd||1.5, i:o.inst||"bell", v:o.v||.05}); });
+    if(o.bass) ev.push({t, m:ch[0]-12, d:bar*.9, i:"bass", v:o.bv||.06});
+    if(o.pad) ev.push({t, m:ch.slice(0,3), d:bar, i:"pad", v:o.pv||.022});
+    if(o.hat) for(let k=1;k<o.pat.length;k+=2) ev.push({t:t+k*step, i:"hat", v:.025}); });
+  ev.sort((a,b)=>a.t-b.t); return {bpm:o.bpm, len:o.chords.length*bar, events:ev, vol:o.vol||.6}; }
+function bdayTheme(bpm, style){
+  const MEL=[[0,69,1],[1,67,1],[2,72,1],[3,71,2],[5,67,.75],[5.75,67,.25],[6,69,1],[7,67,1],[8,74,1],[9,72,2],[11,67,.75],[11.75,67,.25],[12,79,1],[13,76,1],[14,72,1],[15,71,1],[16,69,1],[17,77,.75],[17.75,77,.25],[18,76,1],[19,72,1],[20,74,1],[21,72,2],[23,67,.75],[23.75,67,.25]];
+  const CH=[[48,52,55],[43,47,50],[43,47,50],[48,52,55],[48,52,55,58],[41,45,48],[48,52,55],[48,52,55]];
+  const party=style==="party", ev=[];
+  MEL.forEach(([t,m,d])=>ev.push({t, m, d:party?d*.95:d*1.7, i:party?"lead":"bell", v:party?.075:.075}));
+  CH.forEach((c,b)=>{ const t=b*3;
+    if(party){ ev.push({t, i:"kick", v:.16}); ev.push({t, m:c[0]-12, d:.9, i:"bass", v:.1}); ev.push({t:t+1, m:c.map(x=>x+12), d:.35, i:"stab", v:.032}); ev.push({t:t+2, m:c.map(x=>x+12), d:.35, i:"stab", v:.032});
+      for(let k=0;k<3;k++) ev.push({t:t+k+.5, i:"hat", v:.035}); }
+    else { ev.push({t, m:c.slice(0,3), d:3, i:"pad", v:.028}); ev.push({t, m:c[0]-12, d:2.8, i:"bass", v:.05}); ev.push({t:t+1.5, m:c[2]+12, d:1, i:"bell", v:.025}); } });
+  ev.sort((a,b)=>a.t-b.t); return {bpm, len:24, events:ev, vol:party?.75:.65, startAt:23}; }
+const THEMES = {
+  garden:  arpTheme({bpm:84,  chords:[[60,64,67],[57,60,64],[53,57,60],[55,59,62]], pat:[0,1,2,3,4,2,3,1], oct:12, inst:"bell", v:.045, nd:1.6, bass:true, pad:true, vol:.6}),
+  kitchen: arpTheme({bpm:118, chords:[[53,57,60],[50,53,57],[46,50,53],[48,52,55]], pat:[0,2,1,2,3,2,1,2], oct:12, inst:"pluck", v:.05, nd:.45, bass:true, bv:.07, hat:true, vol:.6}),
+  box:     arpTheme({bpm:72,  chords:[[57,60,64],[53,57,60],[48,52,55],[52,56,59]], pat:[0,null,2,null,4,null,3,null], oct:12, inst:"bell", v:.045, nd:2.6, bass:true, bv:.05, pad:true, pv:.03, vol:.6}),
+  candles: arpTheme({bpm:60,  chords:[[60,64,67],[57,60,64],[53,57,60],[55,59,62]], pat:[3,null,null,null,4,null,null,null], oct:12, inst:"bell", v:.03, nd:3, pad:true, pv:.03, vol:.5}),
+  party:   bdayTheme(112,"party"),
+  letter:  bdayTheme(80,"musicbox")
+};
+const M = { want:null, cur:null, th:null, bus:null, timer:null, t0:0, idx:0, loop:0, spb:.5 };
+function schedule(){ const a=AC, th=M.th; if(!a||!th) return; const ahead=a.currentTime+.3; let guard=0;
+  while(guard++<300){ const ev=th.events[M.idx], when=M.t0+(M.loop*th.len+ev.t)*M.spb; if(when>ahead) break;
+    if(when>=a.currentTime-.02) playEv(ev, when, M.bus); M.idx++; if(M.idx>=th.events.length){ M.idx=0; M.loop++; } } }
+function stopTheme(fade){ if(!M.cur) return; clearInterval(M.timer); const a=AC, b=M.bus;
+  try{ b.gain.cancelScheduledValues(a.currentTime); b.gain.setValueAtTime(b.gain.value,a.currentTime); b.gain.linearRampToValueAtTime(0,a.currentTime+fade); }catch(e){}
+  setTimeout(()=>{ try{ b.disconnect(); }catch(e){} }, fade*1000+500); M.cur=null; M.th=null; }
+function playTheme(name){ const a=ac(); if(!a || M.cur===name) return; stopTheme(.9); const th=THEMES[name]; if(!th) return;
+  const bus=a.createGain(); bus.gain.setValueAtTime(0,a.currentTime); bus.gain.linearRampToValueAtTime(th.vol,a.currentTime+1.2); bus.connect(a.destination);
+  M.cur=name; M.th=th; M.bus=bus; M.spb=60/th.bpm; const sa=th.startAt||0; M.t0=a.currentTime+.15-sa*M.spb; M.loop=0; M.idx=Math.max(0, th.events.findIndex(e=>e.t>=sa));
+  M.timer=setInterval(schedule, 50); schedule(); }
+function setMusic(name){ M.want=name; if(!soundOn) return; if(name) playTheme(name); else stopTheme(.5); }
+$("#soundBtn").addEventListener("click", ()=>{ soundOn=!soundOn; $("#soundBtn").textContent = soundOn?"Sound on":"Sound off"; $("#soundBtn").setAttribute("aria-pressed", String(soundOn));
+  if(soundOn){ sfx.soft(); if(M.want) playTheme(M.want); } else { pour(false); stopTheme(.2); } });
+document.addEventListener("visibilitychange", ()=>{ if(!AC) return; if(document.hidden){ try{ AC.suspend(); }catch(e){} } else { try{ AC.resume(); }catch(e){} } });
 
 /* ---------- shell ---------- */
 function say(t){ const s=$("#say"); s.classList.remove("in"); void s.offsetWidth; s.textContent=t||""; if(t) s.classList.add("in"); }
@@ -692,10 +773,10 @@ $("#nextBtn").addEventListener("click", ()=>{ const f=nextFn; nextFn=null; $("#n
 function show(id, bg){ document.querySelectorAll(".screen").forEach(s=>s.classList.toggle("active", s.id===id)); document.querySelectorAll(".bg").forEach(b=>b.classList.toggle("on", b.dataset.bg===bg)); document.body.classList.toggle("dark", bg==="box"||bg==="finale"); }
 function setLevel(n, done){ document.querySelectorAll(".levels li").forEach(li=>{ const l=+li.dataset.l; li.classList.toggle("now", l===n && !done); li.classList.toggle("done", l<n || (l===n && done)); }); }
 async function levelCard(n, title, sub, dark){ const c=$("#levelcard"); c.classList.toggle("dark", !!dark); c.querySelector(".lc-num").textContent="Level "+n; c.querySelector(".lc-title").textContent=title; c.querySelector(".lc-sub").textContent=sub;
-  c.classList.remove("out"); c.hidden=false; sfx.chime(); await sleep(1900); c.classList.add("out"); await sleep(450); c.hidden=true; }
+  c.classList.remove("out"); c.hidden=false; sfx.whoosh(); sfx.chime(); await sleep(1900); c.classList.add("out"); await sleep(450); c.hidden=true; }
 function openNote(text){ return new Promise(res=>{ const n=$("#note"); $("#noteText").textContent=text; n.hidden=false; sfx.chime();
   const close=()=>{ n.hidden=true; $("#noteClose").removeEventListener("click", close); n.removeEventListener("click", bg); res(); };
-  const bg=e=>{ if(e.target===n) close(); };
+  const opened=performance.now(); const bg=e=>{ if(e.target===n && performance.now()-opened>450) close(); };
   $("#noteClose").addEventListener("click", close); n.addEventListener("click", bg); $("#noteClose").focus(); }); }
 
 /* ---------- intro ---------- */
@@ -739,27 +820,26 @@ function drawCake(parent, gradId, maskId){ const k=C.cake; const g=el("g",{},par
    ========================================================= */
 const G = { svg:$("#gsvg"), step:"idle", digs:0, water:0, clouds:3, bud:0, read:new Set(), can:{x:70,y:300,rot:0}, drag:null, auto:false, flower:null };
 function initGarden(){
-  show("sc-garden","garden"); setLevel(1);
+  show("sc-garden","garden"); setLevel(1); setMusic("garden");
   $("#gBudPetal").setAttribute("fill", C.flower.petal);
   addPetalGrad(G.svg,"gPetalG");
   const n = clamp(C.petalNotes.length, 3, 8);
   G.flower = makeFlower($("#gFlower"), n, "gPetalG", true);
-  G.flower.fronts.forEach((p,i)=>p.addEventListener("click", ()=>readPetal(i)));
   G.step="dig"; say("Tap the soil in the pot to dig a little hole.");
 }
 function soilBurst(cx, cy){ for(let i=0;i<10;i++){ const c=el("circle",{cx, cy, r:(2+Math.random()*2.5).toFixed(1), fill:pick(["#6b4a3a","#5a3d2f","#7d5844"])}, G.svg);
   const dx=(Math.random()-.5)*90, up=-30-Math.random()*40;
   const a=c.animate([{transform:"translate(0px,0px)"},{transform:`translate(${dx*.6}px,${up}px)`, offset:.45},{transform:`translate(${dx}px,10px)`, opacity:0}],{duration:750, easing:"ease-out"}); a.onfinish=()=>c.remove(); } }
-$("#gSoilHit").addEventListener("click", async ()=>{
+async function dig(){
   if(G.step!=="dig") return; G.digs++; sfx.dig(); soilBurst(200,380);
   $("#gHole").style.transform=`scale(${[0,.45,.75,1][G.digs]})`;
   if(G.digs<3){ say(G.digs===1?"A little more.":"One more."); return; }
   G.step="busy"; await sleep(350); say("Here comes the seed.");
   const seed=$("#gSeed"); seed.style.opacity="1";
   const a=seed.animate([{transform:"translate(0px,0px)"},{transform:"translate(0px,388px)"}],{duration:900, easing:"cubic-bezier(.5,0,.75,0)", fill:"forwards"});
-  await a.finished.catch(()=>{}); sfx.pop(); seed.style.opacity="0"; $("#gHole").style.transform="scale(0)"; $("#gMound").style.transform="scale(1)"; soilBurst(200,378);
+  await a.finished.catch(()=>{}); sfx.pop(); seed.style.opacity="0"; $("#gHole").style.transform="scale(0)"; $("#gMound").style.transform="scale(1)"; soilBurst(200,378); sfx.bloop();
   await sleep(800); startWater();
-});
+}
 function placeCan(){ $("#gCan").setAttribute("transform",`translate(${G.can.x.toFixed(1)},${G.can.y.toFixed(1)}) rotate(${G.can.rot.toFixed(1)})`); }
 function spout(){ const r=G.can.rot*Math.PI/180, x=49, y=-21; return {x:G.can.x + x*Math.cos(r) - y*Math.sin(r), y:G.can.y + x*Math.sin(r) + y*Math.cos(r)}; }
 function startWater(){
@@ -767,10 +847,10 @@ function startWater(){
   say("Drag the watering can over the pot. Or just tap the can.");
   let last=performance.now(), lastDrop=0, drops=0;
   const tick=t=>{ const dt=Math.min(.05,(t-last)/1000); last=t; const sp=spout();
-    const over = sp.x>150 && sp.x<258 && sp.y>170 && sp.y<372;
+    const over = sp.x>150 && sp.x<258 && sp.y>170 && sp.y<372; pour(over && G.can.rot>22);
     G.can.rot += ((over?38:0) - G.can.rot)*Math.min(1, dt*9); placeCan();
     if(over && G.can.rot>22){ G.water=Math.min(1, G.water+dt*.34); if(t-lastDrop>40){ lastDrop=t; drop(spout()); if(++drops%5===0) sfx.drip(); } growSprout(); }
-    if(G.water>=1){ finishWater(); return; }
+    if(G.water>=1){ pour(false); finishWater(); return; }
     requestAnimationFrame(tick); };
   requestAnimationFrame(tick);
 }
@@ -780,8 +860,13 @@ function drop(sp){ const c=el("circle",{cx:sp.x.toFixed(1), cy:sp.y.toFixed(1), 
 function growSprout(){ $("#gStem").style.strokeDashoffset = String(1 - G.water*.44);
   if(G.water>.5) $("#gLeafL").style.transform="scale(1)"; if(G.water>.92) $("#gLeafR").style.transform="scale(1)"; }
 G.svg.addEventListener("pointerdown", e=>{
-  if(G.step!=="water" || G.auto) return; if(!e.target.closest("#gCan")) return;
-  const p=svgPt(G.svg,e); G.drag={ox:p.x-G.can.x, oy:p.y-G.can.y, sx:e.clientX, sy:e.clientY, moved:0};
+  const p=svgPt(G.svg,e);
+  if(G.step==="dig"){ if(p.x>100 && p.x<300 && p.y>300) dig(); return; }
+  if(G.step==="clouds"){ if(p.y<320) clearNearestCloud(p); return; }
+  if(G.step==="bud"){ tapBud(); return; }
+  if(G.step==="petals"){ tapPetalAt(p); return; }
+  if(G.step!=="water" || G.auto) return; if(Math.hypot(p.x-G.can.x, p.y-G.can.y)>62) return;
+  G.drag={ox:p.x-G.can.x, oy:p.y-G.can.y, sx:e.clientX, sy:e.clientY, moved:0};
   try{ G.svg.setPointerCapture(e.pointerId); }catch(_){} $("#gCan").style.cursor="grabbing"; });
 G.svg.addEventListener("pointermove", e=>{ if(!G.drag) return; const p=svgPt(G.svg,e);
   G.can.x=clamp(p.x-G.drag.ox, 30, 370); G.can.y=clamp(p.y-G.drag.oy, 70, 440);
@@ -794,24 +879,27 @@ function autoWater(){ G.auto=true; const from={x:G.can.x, y:G.can.y}, to={x:150,
 async function finishWater(){ G.step="busy"; G.drag=null; sfx.chime(); say("It is growing.");
   G.can.rot=0; placeCan(); $("#gCan").style.opacity="0"; await sleep(1300); startClouds(); }
 function startClouds(){ G.step="clouds"; $("#gClouds").classList.add("live"); say("It needs sunlight. Tap the clouds to move them away."); }
-$("#gClouds").addEventListener("click", e=>{ const cl=e.target.closest(".cloud"); if(G.step!=="clouds"||!cl||cl.dataset.gone) return;
+const CLOUD_C=[[300,100],[258,124],[345,74]];
+function clearNearestCloud(p){ const cls=[...document.querySelectorAll("#gClouds .cloud")]; let best=null, bd=1e9; cls.forEach((c,i)=>{ if(c.dataset.gone) return; const d=Math.hypot(p.x-CLOUD_C[i][0], p.y-CLOUD_C[i][1]); if(d<bd){ bd=d; best=c; } }); if(best) clearCloud(best); }
+function clearCloud(cl){ if(G.step!=="clouds"||cl.dataset.gone) return;
   cl.dataset.gone="1"; const inn=cl.querySelector(".cl-in"); inn.style.transform=`translate(${cl.dataset.dx}px,-30px)`; inn.style.opacity="0"; sfx.whoosh();
   G.clouds--; const k=(3-G.clouds)/3; $("#gSunSky").style.opacity=String(k); $("#gSunCore").style.opacity=String(.5+.5*k); $("#gGlow").style.opacity=String(.25+.75*k);
-  if(G.clouds===0) finishClouds(); });
-async function finishClouds(){ G.step="busy"; $("#gClouds").classList.remove("live"); say("Sunshine.");
+  if(G.clouds===0){ sfx.sparkle(); finishClouds(); } }
+async function finishClouds(){ G.step="busy"; $("#gClouds").classList.remove("live"); say("Sunshine."); sfx.grow();
   const stem=$("#gStem"); stem.style.transition="stroke-dashoffset 1.8s cubic-bezier(.22,1,.36,1)"; stem.style.strokeDashoffset="0";
   $("#gLeafL").style.transform="scale(1.1)"; $("#gLeafR").style.transform="scale(1.1)";
   await sleep(1700); $("#gBud").style.transform="scale(1)"; sfx.pop(); await sleep(700);
   G.step="bud"; say("A bud. Tap it gently."); }
-$("#gBud").addEventListener("click", ()=>{ if(G.step!=="bud") return; G.bud++; sfx.soft();
+function tapBud(){ if(G.step!=="bud") return; G.bud++; tone(480+G.bud*140,.2,"triangle",.1);
   $("#gBud").style.transform=`scale(${1+G.bud*.13})`;
   $("#gBudIn").animate([{transform:"rotate(0deg)"},{transform:"rotate(-10deg)"},{transform:"rotate(8deg)"},{transform:"rotate(0deg)"}],{duration:500});
-  if(G.bud===1) say("It moved. Again."); else if(G.bud===2) say("Almost there."); else bloom(); });
-async function bloom(){ G.step="busy"; $("#gBud").style.transform="scale(0)"; await sleep(250);
+  if(G.bud===1) say("It moved. Again."); else if(G.bud===2) say("Almost there."); else bloom(); }
+function tapPetalAt(p){ const dx=p.x-200, dy=p.y-184, d=Math.hypot(dx,dy); if(d<6||d>100) return; const n=G.flower.fronts.length; const ang=(Math.atan2(dy,dx)*180/Math.PI+90+360)%360; readPetal(Math.round(ang/(360/n))%n); }
+async function bloom(){ G.step="busy"; G.bud=99; $("#gBud").style.transform="scale(0)"; await sleep(250);
   const f=G.flower; f.backs.forEach((p,i)=>setTimeout(()=>p.style.transform="scale(1)", i*55));
   f.fronts.forEach((p,i)=>setTimeout(()=>p.style.transform="scale(.9)", 220+i*75));
   setTimeout(()=>f.center.style.transform=`scale(${C.flower.centerSize||1})`, 300+f.fronts.length*75);
-  sfx.win(); await sleep(450);
+  sfx.win(); sfx.sparkle(); await sleep(450);
   const s=svgToScreen(G.svg,200,184); boom({particleCount:70, spread:90, startVelocity:26, scalar:.8, ticks:120, origin:originAt(s.x,s.y), colors:[C.flower.petal, C.flower.petalLight, C.flower.center, "#ffffff"], shapes:["circle"]});
   await sleep(900); f.fronts.forEach(p=>p.classList.add("tap"));
   G.step="petals"; say(`Each petal has a note for you. Tap them. 0 of ${f.fronts.length} read.`); }
@@ -827,7 +915,7 @@ async function readPetal(i){ if(G.step!=="petals") return; const p=G.flower.fron
    ========================================================= */
 const K = { svg:$("#ksvg"), scene:$("#kScene"), step:"idle", caught:0, stir:0, rot:0, lastA:null, down:false, moved:0, fails:0, zone:70, mark:0, cells:[], covered:0, lastF:null };
 function initKitchen(){
-  show("sc-kitchen","kitchen"); setLevel(2);
+  show("sc-kitchen","kitchen"); setLevel(2); setMusic("kitchen");
   $("#kBatterFill").setAttribute("fill", C.cake.batter); $("#kRise").setAttribute("fill", C.cake.sponge);
   let d="M0 0"; for(let a=0;a<=Math.PI*6;a+=.25){ const r=4+a*2.9; d+=` L${(Math.cos(a)*r).toFixed(1)} ${(Math.sin(a)*r).toFixed(1)}`; } $("#kSpiral").setAttribute("d", d);
   addLinear(K.svg,"kSponge",[["0",C.cake.sponge],["1",C.cake.spongeDark]]);
@@ -859,41 +947,42 @@ async function catchIt(b, anim, i, x, H){ const m=new DOMMatrix(getComputedStyle
   const ing=C.ingredients[i]; toast(ing.icon, `<b>${esc(ing.item)}</b>, ${esc(ing.line)}`);
   const sr=K.scene.getBoundingClientRect(), tgt=svgToScreen(K.svg,200,334); const tx=tgt.x-sr.left-x, ty=tgt.y-sr.top-(H+34);
   const fly=b.animate([{transform:`translate(${m.m41}px,${m.m42}px) scale(1)`},{transform:`translate(${tx}px,${ty}px) scale(.35)`, opacity:.6}],{duration:650, easing:"cubic-bezier(.5,0,.3,1)", fill:"forwards"});
-  await fly.finished.catch(()=>{}); b.remove(); sfx.soft();
+  await fly.finished.catch(()=>{}); b.remove(); sfx.bloop();
   K.caught++; $("#kBatter").style.transform=`scale(${.35+.65*K.caught/C.ingredients.length})`;
   const n=C.ingredients.length;
   if(K.caught<n){ say(`Catch the ingredients as they float up. ${K.caught} of ${n}.`); setTimeout(()=>spawnBubble(K.caught), 1100); }
   else { K.step="busy"; say("Everything is in the bowl."); await sleep(1700); startStir(); } }
 function startStir(){ K.step="stir"; $("#kSpoon").style.opacity="1"; say("Now stir. Draw circles in the bowl, or keep tapping it."); }
-function stirBy(amount, degs){ K.stir=Math.min(1, K.stir+amount); K.rot+=degs; $("#kSwirl").style.transform=`rotate(${K.rot}deg)`; $("#kLumps").style.opacity=String(1-K.stir);
+function stirBy(amount, degs){ const nw=performance.now(); if(!K.sw || nw-K.sw>220){ K.sw=nw; sfx.swish(); } K.stir=Math.min(1, K.stir+amount); K.rot+=degs; $("#kSwirl").style.transform=`rotate(${K.rot}deg)`; $("#kLumps").style.opacity=String(1-K.stir);
   if(K.stir>=1 && K.step==="stir") finishStir(); }
 async function finishStir(){ K.step="busy"; K.down=false; sfx.chime(); $("#kSpoon").style.opacity="0"; say("Smooth. Into the oven it goes."); await sleep(1100);
   $("#kBowl").style.transform="translateX(-360px)"; $("#kOven").style.transform="translateX(0px)"; await sleep(1000);
   K.step="ovenOff"; say("Tap the oven to turn it on."); }
-$("#kOven").addEventListener("click", async ()=>{ if(K.step!=="ovenOff") return; K.step="busy"; sfx.soft(); tone(110,2.6,"sine",.05);
+async function ovenOn(){ if(K.step!=="ovenOff") return; K.step="busy"; sfx.clunk(); tone(110,2.6,"sine",.05); noise(2.6,.04,400,0,"lowpass");
   $("#kKnob").style.transform="rotate(120deg)"; $("#kLight").setAttribute("fill","#ff8a3c"); $("#kGlow").style.opacity=".55"; $("#kRise").style.transform="scaleY(1)";
-  say("Baking..."); await sleep(2700); startMeter(); });
+  say("Baking..."); await sleep(2700); startMeter(); }
 function startMeter(){ K.step="meter"; $("#kMeter").style.opacity="1"; setZone(); say("Tap anywhere when the dot is in the gold zone.");
   const t0=performance.now(); const tick=t=>{ if(K.step!=="meter") return; K.mark=.5+.5*Math.sin((t-t0)/1000*2.4 - Math.PI/2); $("#kDot").setAttribute("cx",(70+260*K.mark).toFixed(1)); requestAnimationFrame(tick); }; requestAnimationFrame(tick); }
 function setZone(){ $("#kZone").setAttribute("x", String(200-K.zone/2)); $("#kZone").setAttribute("width", String(K.zone)); }
-async function meterTap(){ const x=70+260*K.mark; if(Math.abs(x-200)<=K.zone/2+6){ K.step="busy"; sfx.chime(); tone(1568,.8,"sine",.08,.15); say("Golden and crispy, just like fried chimkin. Perfect.");
+async function meterTap(){ const x=70+260*K.mark; if(Math.abs(x-200)<=K.zone/2+6){ K.step="busy"; sfx.ding(); say("Golden and crispy, just like fried chimkin. Perfect.");
     $("#kDot").setAttribute("fill","#4f9a68"); await sleep(1000); $("#kMeter").style.opacity="0"; $("#kGlow").style.opacity="0"; $("#kLight").setAttribute("fill","#5f7d75"); await sleep(400);
     $("#kOven").style.transform="translateX(380px)"; await sleep(600); $("#kStand").style.transform="translateY(0px)"; await sleep(1000); startFrost(); }
   else { K.fails++; sfx.wrong(); say(x<200?"A bit pale. Try once more.":"Too long. Even chimkin is not fried this much. Try again."); if(K.fails>=2){ K.zone=Math.min(150, K.zone+30); setZone(); } } }
 function startFrost(){ K.step="frost"; say("Spread the frosting. Rub your finger or mouse across the top of the cake."); }
 function addFrost(x,y){ if(K.lastF && Math.hypot(x-K.lastF.x, y-K.lastF.y)<5) return; K.lastF={x,y};
-  el("circle",{cx:x.toFixed(1), cy:y.toFixed(1), r:"22", fill:"#ffffff"}, $("#kFrostMask"));
+  el("circle",{cx:x.toFixed(1), cy:y.toFixed(1), r:"22", fill:"#ffffff"}, $("#kFrostMask")); { const nw=performance.now(); if(!K.sq || nw-K.sq>180){ K.sq=nw; sfx.squish(); } }
   K.cells.forEach(c=>{ if(!c.c && Math.hypot(c.x-x,c.y-y)<24){ c.c=true; K.covered++; } });
   if(K.covered/K.cells.length>=.7) finishFrost(); }
 async function finishFrost(){ if(K.step!=="frost") return; K.step="busy"; const rest=K.cells.filter(c=>!c.c);
   for(const c of rest){ el("circle",{cx:c.x, cy:c.y, r:"24", fill:"#ffffff"}, $("#kFrostMask")); await sleep(18); }
   el("rect",{x:"-130", y:"-200", width:"260", height:"180", fill:"#ffffff"}, $("#kFrostMask"));
-  await sleep(200); $("#kSprinkles").style.transform="scale(1)"; sfx.pop(); await sleep(350); $("#kCherry").style.transform="scale(1)"; sfx.win();
+  await sleep(200); $("#kSprinkles").style.transform="scale(1)"; sfx.pop(); sfx.sparkle(); await sleep(350); $("#kCherry").style.transform="scale(1)"; sfx.win();
   const s=svgToScreen(K.svg,200,270); boom({particleCount:60, spread:100, startVelocity:24, scalar:.75, ticks:120, origin:originAt(s.x,s.y), colors:["#ff6b8b","#ffd166","#6fd3ff","#9b8cff","#ffffff"]});
   await sleep(700); setLevel(2,true); say("Looks amazing. Let's keep it safe for later.");
   showNext("Next level", async ()=>{ await levelCard(3,"The box","Four locks. One box.", true); initBox(); }); }
 K.svg.addEventListener("pointerdown", e=>{ const p=svgPt(K.svg,e);
   if(K.step==="meter"){ meterTap(); return; }
+  if(K.step==="ovenOff"){ ovenOn(); return; }
   if(K.step==="stir"){ K.down=true; K.moved=0; K.sx=e.clientX; K.sy=e.clientY; K.lastA=Math.atan2((p.y-334)*3, p.x-200); try{ K.svg.setPointerCapture(e.pointerId); }catch(_){} moveSpoon(p); return; }
   if(K.step==="frost"){ K.down=true; try{ K.svg.setPointerCapture(e.pointerId); }catch(_){} frostAt(p); } });
 K.svg.addEventListener("pointermove", e=>{ const p=svgPt(K.svg,e);
@@ -915,7 +1004,7 @@ const LOCKS = [
   { title:"Find the pairs", build:buildMatch },
   { title:"The code", build:buildCode }
 ];
-function initBox(){ show("sc-box","box"); setLevel(3);
+function initBox(){ show("sc-box","box"); setLevel(3); setMusic("box");
   const st=$("#bStars"); for(let i=0;i<46;i++){ const c=el("circle",{cx:(Math.random()*400).toFixed(1), cy:(Math.random()*280).toFixed(1), r:(.6+Math.random()*1.4).toFixed(1), fill:"#ffffff", class:"twinkle"}, st); c.style.animationDelay=(-Math.random()*3)+"s"; c.style.animationDuration=(2+Math.random()*3)+"s"; }
   const host=$("#bLocks"); LOCK_POS.forEach(([x,y],i)=>{ const b=document.createElement("button"); b.type="button"; b.className="lock"; b.style.left=x+"%"; b.style.top=y+"%"; b.setAttribute("aria-label",`Lock ${i+1}: ${LOCKS[i].title}`);
     b.innerHTML=`<svg viewBox="0 0 40 44" aria-hidden="true"><path class="shackle" d="M11 20 V13 a9 9 0 0 1 18 0 V20" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/><rect x="5" y="19" width="30" height="23" rx="7" fill="currentColor"/><circle cx="20" cy="29" r="3.2" fill="#fff3c4"/><rect x="18.6" y="30" width="2.8" height="6" rx="1.4" fill="#fff3c4"/></svg><span class="num">${i+1}</span>`;
@@ -926,10 +1015,10 @@ function openLock(i){ if(B.open[i]||B.busy) return; sfx.soft(); const m=$("#moda
   let finished=false; LOCKS[i].build(body, ()=>{ if(finished) return; finished=true; closeModal(); unlock(i); }); }
 function closeModal(){ const m=$("#modal"); m.classList.remove("show"); setTimeout(()=>{ m.hidden=true; $("#mBody").innerHTML=""; }, 260); }
 $("#mClose").addEventListener("click", closeModal);
-async function unlock(i){ B.open[i]=true; B.count++; const b=$("#bLocks").children[i]; await sleep(250); b.classList.add("open"); sfx.chime(); await sleep(350); b.classList.add("gone");
+async function unlock(i){ B.open[i]=true; B.count++; const b=$("#bLocks").children[i]; await sleep(250); b.classList.add("open"); sfx.clunk(); sfx.chime(); await sleep(350); b.classList.add("gone");
   if(B.count<4){ say(`${B.count} of 4 locks open.`); return; } say("All four. Something is happening..."); await sleep(1200); openBox(); }
-async function openBox(){ const box=$("#bBox"); box.classList.add("shake"); sfx.whoosh(); await sleep(950); box.classList.remove("shake");
-  $("#bLid").style.transform="translate(-60px,-300px) rotate(-38deg)"; $("#bLid").style.opacity="0"; $("#bRays").style.opacity="1"; sfx.cork(); setTimeout(()=>sfx.chime(), 200);
+async function openBox(){ const box=$("#bBox"); box.classList.add("shake"); sfx.rumble(); await sleep(950); box.classList.remove("shake");
+  $("#bLid").style.transform="translate(-60px,-300px) rotate(-38deg)"; $("#bLid").style.opacity="0"; $("#bRays").style.opacity="1"; sfx.cork(); sfx.sparkle(); setTimeout(()=>sfx.chime(), 200);
   const s=svgToScreen($("#bsvg"),200,300); boom({particleCount:120, spread:70, startVelocity:42, angle:90, scalar:.9, ticks:160, origin:originAt(s.x,s.y), colors:["#ffe08a","#f5b83d","#ffffff","#fff2b0"], shapes:["star","circle"]});
   say(""); await sleep(1900); goFinale(); }
 
@@ -1019,9 +1108,9 @@ function buildFinaleCake(){ const holder=$("#fCakeHolder");
     const pos=el("g",{transform:"translate(0,-27)"}, cg); const fi=el("g",{class:"grow"}, pos); fi.style.transform="scale(0)"; const fk=el("g",{class:"flick"}, fi); fk.style.animationDelay=(-Math.random())+"s";
     el("circle",{cx:"0", cy:"-6", r:"11", fill:"url(#fFlameGlow)"}, fk); el("path",{d:"M0 -14 C 5 -7 5 -2 0 1 C -5 -2 -5 -7 0 -14Z", fill:"#ffb703"}, fk); el("path",{d:"M0 -9 C 2.5 -5 2.5 -2 0 0 C -2.5 -2 -2.5 -5 0 -9Z", fill:"#fff4c2"}, fk);
     F.candles.push({x:p.x, y:p.y-33, g:cg, fi, lit:false}); }); }
-async function goFinale(){ buildFinaleCake(); show("sc-finale","finale"); setLevel(3,true); await sleep(500);
+async function goFinale(){ buildFinaleCake(); show("sc-finale","finale"); setLevel(3,true); setMusic("candles"); await sleep(500);
   $("#fCake").style.transform="translateY(0px)"; await sleep(1200);
-  for(const c of shuffle(F.candles)){ c.lit=true; c.fi.style.transform="scale(1)"; F.lit++; sfx.tick(); $("#fHalo").style.opacity=String(.9*F.lit/25); await sleep(70); }
+  for(const c of shuffle(F.candles)){ c.lit=true; c.fi.style.transform="scale(1)"; F.lit++; sfx.fwip(); $("#fHalo").style.opacity=String(.9*F.lit/25); await sleep(70); }
   await sleep(500); say("Close your eyes and make a wish.");
   showNext("I made my wish", ()=>{ F.step="blow"; say("Now blow out the candles. Swipe across them, or tap the cake."); }); }
 function toLocal(p){ return {x:(p.x-200)/1.3, y:(p.y-436)/1.3}; }
@@ -1033,7 +1122,7 @@ function out(c){ c.fi.style.transform="scale(0)"; const w=el("path",{d:"M0 -28 C
 F.svg.addEventListener("pointerdown", e=>{ if(F.step!=="blow") return; F.down=true; try{ F.svg.setPointerCapture(e.pointerId); }catch(_){} blowAt(svgPt(F.svg,e), 36); });
 F.svg.addEventListener("pointermove", e=>{ if(F.step==="blow" && (F.down || e.pointerType==="mouse")) blowAt(svgPt(F.svg,e), 24); });
 F.svg.addEventListener("pointerup", ()=>{ F.down=false; });
-async function lightsOut(){ F.step="done"; say(""); $("#nextBtn").hidden=true; await sleep(500); $("#blackout").classList.add("on"); await sleep(1700); startParty(); }
+async function lightsOut(){ F.step="done"; say(""); setMusic(null); $("#nextBtn").hidden=true; await sleep(500); $("#blackout").classList.add("on"); await sleep(1700); startParty(); }
 
 const BAL=["#2f6fe0","#4f8cff","#7fb8ff","#a8d8ff","#ffd166","#ffffff","#ffc928"];
 let partyOn=false;
@@ -1041,7 +1130,7 @@ function spawnBalloon(delay){ if(!partyOn) return; const c=pick(BAL), size=60+Ma
   d.style.left=(Math.random()*90)+"%"; d.style.width=size+"px"; d.style.setProperty("--dur",(9+Math.random()*6)+"s"); d.style.animationDelay=(delay||0)+"s";
   d.innerHTML=`<span class="sway" style="animation-duration:${(2.4+Math.random()*2).toFixed(2)}s"><svg viewBox="0 0 60 122" aria-hidden="true"><path d="M30 4 C 52 4 58 26 56 40 C 53 60 38 74 30 76 C 22 74 7 60 4 40 C 2 26 8 4 30 4Z" fill="${c}"/><ellipse cx="19" cy="22" rx="6" ry="11" fill="#ffffff" opacity=".45" transform="rotate(-20 19 22)"/><path d="M25 76 L35 76 L30 83Z" fill="${c}"/><path d="M30 83 C 23 93 37 102 30 120" stroke="rgba(255,255,255,.85)" stroke-width="1.4" fill="none"/></svg></span>`;
   d.addEventListener("animationend", e=>{ if(e.animationName==="rise"){ d.remove(); spawnBalloon(0); } });
-  d.addEventListener("pointerdown", e=>{ e.preventDefault(); const r=d.getBoundingClientRect(); boom({particleCount:34, spread:80, startVelocity:22, scalar:.8, ticks:110, origin:originAt(r.left+r.width/2, r.top+r.width*.45), colors:[c,"#ffffff"]}); sfx.pop(); d.remove(); setTimeout(()=>spawnBalloon(0), 1200); });
+  d.addEventListener("pointerdown", e=>{ e.preventDefault(); const r=d.getBoundingClientRect(); boom({particleCount:34, spread:80, startVelocity:22, scalar:.8, ticks:110, origin:originAt(r.left+r.width/2, r.top+r.width*.45), colors:[c,"#ffffff"]}); sfx.pop(); noise(.12,.3,1800,0,"bandpass"); d.remove(); setTimeout(()=>spawnBalloon(0), 1200); });
   $("#balloons").appendChild(d); }
 function spray(side){ const tip=document.querySelector(`.bottle.${side} .tip`).getBoundingClientRect(); const o=originAt(tip.left, tip.top); const end=Date.now()+1900;
   (function frame(){ boom({particleCount:6, angle: side==="left"?64:116, spread:18, startVelocity:52+Math.random()*16, origin:o, colors:["#ffffff","#fff4c2","#ffe08a","#f7c948"], shapes:["circle"], scalar:.55, gravity:.85, drift: side==="left"?.3:-.3, ticks:230});
@@ -1052,21 +1141,21 @@ async function startParty(){ partyOn=true; const p=$("#party");
   p.hidden=false; requestAnimationFrame(()=>p.classList.add("on")); await sleep(300); $("#blackout").classList.remove("on");
   for(let i=0;i<14;i++) spawnBalloon(i*.25);
   await sleep(500); document.querySelectorAll(".bottle").forEach(b=>b.classList.add("shaking")); await sleep(900);
-  document.querySelectorAll(".bottle").forEach(b=>{ b.classList.remove("shaking"); b.classList.add("popped"); }); sfx.cork(); spray("left"); spray("right");
+  document.querySelectorAll(".bottle").forEach(b=>{ b.classList.remove("shaking"); b.classList.add("popped"); }); sfx.cork(); sfx.thump(); sfx.horn(.15); sfx.horn(.8); sfx.crackle(.3); spray("left"); spray("right"); setMusic("party");
   boom({particleCount:160, spread:120, startVelocity:48, origin:{x:.5, y:.35}, scalar:1, ticks:220, colors:["#2f6fe0","#7fb8ff","#ffd166","#ffffff","#a8d8ff"]});
-  setTimeout(birthdaySong, 900);
-  setTimeout(()=>{ boom({particleCount:80, angle:60, spread:60, origin:{x:0, y:.7}}); boom({particleCount:80, angle:120, spread:60, origin:{x:1, y:.7}}); }, 2600);
+  setTimeout(()=>{ sfx.crackle(); boom({particleCount:80, angle:60, spread:60, origin:{x:0, y:.7}}); boom({particleCount:80, angle:120, spread:60, origin:{x:1, y:.7}}); }, 2600);
   await sleep(3200); $("#partyActions").hidden=false;
-  setTimeout(()=>{ spray("left"); spray("right"); sfx.whoosh(); }, 3500); }
-$("#letterBtn").addEventListener("click", ()=>{ sfx.chime(); const L=$("#letter"), pol=$("#polas"), msg=$("#msg"); pol.innerHTML=""; msg.innerHTML="";
+  setTimeout(()=>{ spray("left"); spray("right"); sfx.whoosh(); sfx.horn(); }, 3500); }
+$("#letterBtn").addEventListener("click", ()=>{ sfx.chime(); sfx.sparkle(); setMusic("letter"); const L=$("#letter"), pol=$("#polas"), msg=$("#msg"); pol.innerHTML=""; msg.innerHTML="";
   const photos=(C.photos||[]).slice(0,4); pol.hidden=!photos.length;
   photos.forEach((src,i)=>{ const f=document.createElement("figure"); f.className="pola"; f.style.margin="0"; f.style.setProperty("--r", (i%2? 3: -4)+(Math.random()*2-1)+"deg"); const im=document.createElement("img"); im.src=src; im.alt="A photo of us"; f.appendChild(im); pol.appendChild(f); });
   String(C.message).split(/\n\s*\n/).forEach(t=>{ const pEl=document.createElement("p"); pEl.textContent=t.trim(); msg.appendChild(pEl); });
   const sg=document.createElement("p"); sg.className="sign"; sg.textContent="From, "+C.from; msg.appendChild(sg);
   L.hidden=false; requestAnimationFrame(()=>L.classList.add("show")); });
-$("#letterClose").addEventListener("click", ()=>{ const L=$("#letter"); L.classList.remove("show"); setTimeout(()=>L.hidden=true, 260); boom({particleCount:90, spread:100, origin:{x:.5,y:.5}}); });
+$("#letterClose").addEventListener("click", ()=>{ setMusic("party"); sfx.crackle(); const L=$("#letter"); L.classList.remove("show"); setTimeout(()=>L.hidden=true, 260); boom({particleCount:90, spread:100, origin:{x:.5,y:.5}}); });
 $("#replayBtn").addEventListener("click", ()=>location.reload());
 })();
 </script>
 
-</body></html>
+</body>
+</html>
